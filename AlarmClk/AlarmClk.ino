@@ -1,7 +1,10 @@
 #include <SevSeg.h>
 #include <toneAC.h>
 #include <IRremote.hpp>
-
+/*
+    Base for IR Controlled Timer for educational purposes
+    Comes with many bugs in stock
+*/
 
 const byte IR_RECEIVE_PIN = 11;
 const byte SS_D1_PIN = 7;
@@ -45,40 +48,89 @@ typedef enum remote_button{
   }remote_button_t;
 
 SevSeg sevseg;
-
+int seconds_left = 0;
+bool is_running = false;
 void setup()
 {
    Serial.begin(115200);
-   Serial.println("IR Receive test");
+   Serial.println("Starting Final Alarm Clock");
    IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
     byte numDigits = 4;  
-    byte digitPins[] = {SS_D1_PIN, SS_D2_PIN, SS_D3_PIN, SS_D4_PIN};
-    byte segmentPins[] = {SS_A_PIN, SS_B_PIN, SS_C_PIN, SS_D_PIN, SS_E_PIN, SS_F_PIN, SS_G_PIN, SS_DP_PIN};
+    byte digitPins[] = {SS_D1_PIN, SS_D2_PIN, SS_D3_PIN, SS_D4_PIN}; // D1, D2, D3, D4 When they are low, the value on the segments is displayed
+    byte segmentPins[] = {SS_A_PIN, SS_B_PIN, SS_C_PIN, SS_D_PIN, SS_E_PIN, SS_F_PIN, SS_G_PIN, SS_DP_PIN}; // DP, and segments ABCDEFG, by turning some on and others off, you can display different numbers
     bool resistorsOnSegments = 0; 
-  
-    sevseg.begin(COMMON_CATHODE, numDigits, digitPins, segmentPins, resistorsOnSegments);
+    byte hardwareConfig = COMMON_CATHODE; // You may need to change this if your display is COMMON ANODE
+    bool updateWithDelays = false;
+    bool leadingZeros = true;
+    bool disableDecPoint = false;
+    sevseg.begin(hardwareConfig, numDigits, digitPins, segmentPins, resistorsOnSegments,
+    updateWithDelays, leadingZeros, disableDecPoint);
     sevseg.setBrightness(60);
+    sevseg.setNumber(1234);
+    
 }
+unsigned long lastUpdateTime = 0;
+const int SECONDS_INTERVAL = 1000;  // Update every 1000 milliseconds (1 second)
 
-byte buzzer_val = 0;
-bool play_buzzer = false;
+void loop(){
+  sevseg.refreshDisplay();
+  // Check if a second has elapsed
+  if (millis() - lastUpdateTime >= SECONDS_INTERVAL) {
+    lastUpdateTime = millis();  // Update the last update time
 
-void loop()
-{
-    sevseg.setNumber(3146,3); // set the characters/numbers to display.
-    sevseg.refreshDisplay();
+    // Decrease sec_left every second
+    if (is_running && seconds_left > 0) {
+      seconds_left--;
+      sevseg.setNumber(seconds_left);
+    }
+    if(seconds_left == 0 && is_running){
+        toneAC(330, 10, 5000);
+        is_running = 0;
+    }
+  }
    if (IrReceiver.decode())
    {
       byte recieved = IrReceiver.decodedIRData.command;
       remote_button_t button_pressed = decode(recieved);
-      if(button_pressed != BUTTONHELD){
-            Serial.println(button_pressed);
-            play_buzzer = !play_buzzer;
-        }
+      if(button_pressed == BUTEQ){
+            changeTimeLeft();
+        }else if(button_pressed == BUTPOW){
+          sevseg.blank();
+          }else if(button_pressed == BUTSTS){
+            sevseg.setNumber(1234);
+            }else if(button_pressed == BUTPAUSE){
+              is_running =  !is_running;
+              }
       IrReceiver.resume();
    }
-   if(play_buzzer){toneAC(440); // A4
-   }else{noToneAC();}
+  
+   
+}
+
+void changeTimeLeft(void){
+    int sec_val = 0;
+    for(int i = 0; i< 4;){
+      if(IrReceiver.decode()){
+   
+      byte recieved = IrReceiver.decodedIRData.command;
+      remote_button_t button_pressed = decode(recieved);
+      if(button_pressed<=BUT9 && button_pressed >= BUT0){
+        if(i==0)sec_val+=button_pressed*1000;
+        if(i==1)sec_val+=button_pressed*100;
+        if(i==2)sec_val+=button_pressed*10;
+        if(i==3)sec_val+=button_pressed;
+        i++;
+      }
+      IrReceiver.resume();
+      Serial.println(i);
+      Serial.println(button_pressed);
+      Serial.println(sec_val);
+      }
+      sevseg.setNumber(sec_val);
+      sevseg.refreshDisplay();
+    }
+    seconds_left = sec_val;
+    is_running = false;
 }
 
 remote_button_t decode(byte val){
